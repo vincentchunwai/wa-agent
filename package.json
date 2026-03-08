@@ -1,10 +1,29 @@
 {
   "name": "wa-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Framework for building autonomous AI agents on WhatsApp",
   "author": "Ibrahim Hajjaj",
   "license": "MIT",
+  "homepage": "https://github.com/ibrahimhajjaj/wa-agent#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ibrahimhajjaj/wa-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ibrahimhajjaj/wa-agent/issues"
+  },
+  "keywords": [
+    "whatsapp",
+    "agent",
+    "ai",
+    "chatbot",
+    "framework",
+    "ai-agent",
+    "whatsapp-bot",
+    "vercel-ai-sdk",
+    "multi-agent"
+  ],
   "bin": {
     "wa-agent": "./dist/cli/index.js"
   },
