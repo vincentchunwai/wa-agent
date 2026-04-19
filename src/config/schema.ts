@@ -12,7 +12,7 @@ const LLMConfigSchema = z.object({
 });
 
 const RoutingRuleSchema = z.object({
-  type: z.enum(['jid', 'group', 'keyword', 'default']),
+  type: z.enum(['jid', 'group', 'keyword', 'mention', 'default']),
   match: z.string(),
   priority: z.number().optional(),
 });
@@ -38,6 +38,7 @@ const HandoffConfigSchema = z.object({
   escalateTo: z.string(),
   conditions: z.array(z.string()).optional(),
   silent: z.boolean().default(false),
+  resolveKeywords: z.array(z.string()).optional(),
 });
 
 export const AgentConfigSchema = z.object({

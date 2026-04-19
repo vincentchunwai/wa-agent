@@ -17,3 +17,6 @@ wa.db
 # env
 .env
 .env.*
+
+# pm2
+ecosystem.config.*

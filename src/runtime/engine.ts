@@ -53,7 +53,7 @@ export class Engine {
 
     // 5. Setup middleware pipeline
     this.pipeline.use('filter', createFilterMiddleware());
-    this.pipeline.use('handoff-check', createHandoffCheckMiddleware(() => this.router.getAgentNames()));
+    this.pipeline.use('handoff-check', createHandoffCheckMiddleware(() => this.router.getAgents().map(a => a.config)));
 
     // 6. Start connection
     this.connection = new ReconnectingConnection({
@@ -65,6 +65,15 @@ export class Engine {
           this.dispatcher.updateSock(sock);
         } else {
           this.dispatcher = new Dispatcher(sock, wuConfig, projectConfig);
+        }
+
+        // Set own JIDs for mention routing (both PN and LID formats)
+        const user = (sock as any).user;
+        if (user?.id) {
+          this.router.setOwnJid(user.id.replace(/:\d+@/, '@'));
+        }
+        if (user?.lid) {
+          this.router.setOwnJid(user.lid.replace(/:\d+@/, '@'));
         }
 
         // Resolve name-based routing

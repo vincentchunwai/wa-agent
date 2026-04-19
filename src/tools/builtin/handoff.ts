@@ -46,7 +46,8 @@ export function createHandoffTool(ctx: ToolContext) {
       const notification = `🔔 *Handoff from ${ctx.agentConfig.name}*\n\n` +
         `*Chat:* ${ctx.chatJid}\n` +
         `*Reason:* ${reason}\n\n` +
-        `*Summary:*\n${summary}`;
+        `*Summary:*\n${summary}\n\n` +
+        `_Reply /done here to resolve this handoff._`;
 
       await sendText(ctx.sock, escalateTo, notification, ctx.config);
 

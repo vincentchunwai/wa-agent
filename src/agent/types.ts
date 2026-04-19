@@ -26,7 +26,7 @@ export interface LLMConfig {
 }
 
 export interface RoutingRule {
-  type: 'jid' | 'group' | 'keyword' | 'default';
+  type: 'jid' | 'group' | 'keyword' | 'mention' | 'default';
   match: string;
   originalMatch?: string;
   priority?: number;
@@ -53,6 +53,7 @@ export interface HandoffConfig {
   escalateTo: string;
   conditions?: string[];
   silent?: boolean;
+  resolveKeywords?: string[];
 }
 
 export interface AgentInstance {

@@ -7,23 +7,53 @@
 
 ## Summary
 
-The OpenRouter provider implementation in `src/agent/factory.ts` works correctly. Switching `default.yaml` from Anthropic to OpenRouter **is possible** but requires changing the **model ID format** — this is the only catch.
+Two issues were found when switching to OpenRouter:
+
+1. **Bug (fixed): Responses API vs Chat Completions API** — `@ai-sdk/openai` v3+ defaults to the Responses API (`/v1/responses`), but OpenRouter only supports Chat Completions (`/v1/chat/completions`). Fixed by using `provider.chat()` instead of `provider()`.
+
+2. **Config: Model ID format** — OpenRouter uses `provider/model-name` IDs (e.g., `anthropic/claude-sonnet-4`), not Anthropic-style IDs (e.g., `claude-sonnet-4-20250514`).
 
 ---
 
-## Test Results
+## Bug: Responses API Error (FIXED)
 
-| # | Test | Result |
-|---|------|--------|
-| 1 | `anthropic/claude-sonnet-4` (valid OpenRouter ID) | **PASSED** — Response received |
-| 2 | `claude-sonnet-4-20250514` (Anthropic-style ID, no prefix) | **FAILED** — "not a valid model ID" |
-| 3 | `anthropic/claude-sonnet-4-20250514` (date-stamped with prefix) | **FAILED** — "not a valid model ID" |
-| 4 | API key via `process.env.OPENROUTER_API_KEY` (no explicit `apiKey` in config) | **PASSED** — Fallback works |
-| 5 | Full simulated YAML config (provider + model + temperature + maxTokens) | **PASSED** — All params applied |
+### Symptom
+
+```
+AI_APICallError: Invalid Responses API request
+url: https://openrouter.ai/api/v1/responses
+```
+
+The SDK was sending requests to `/v1/responses` (OpenAI Responses API format), but OpenRouter only supports `/v1/chat/completions`.
+
+### Root Cause
+
+In `@ai-sdk/openai` v3.0.41, calling `provider(modelId)` returns a model that uses the **Responses API** by default. OpenRouter doesn't implement this endpoint.
+
+### Fix Applied
+
+**File:** `src/agent/factory.ts`, line 22
+
+```diff
+ case 'openrouter': {
+   const provider = createOpenAI({
+     baseURL: config.baseUrl ?? 'https://openrouter.ai/api/v1',
+     apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
+   });
+-  return provider(config.model);
++  return provider.chat(config.model);
+ }
+```
+
+`provider.chat()` forces the Chat Completions API (`/v1/chat/completions`), which is what OpenRouter supports.
+
+### Verification
+
+Tested with `deepseek/deepseek-r1-0528` (the model from the error log) with multi-turn messages + tools — the exact scenario that was failing. Result: **PASSED**.
 
 ---
 
-## Key Finding: Model ID Mismatch
+## Issue: Model ID Format Mismatch
 
 The current `default.yaml` uses Anthropic's model ID format:
 ```yaml
@@ -37,19 +67,27 @@ model: anthropic/claude-sonnet-4  # OpenRouter format
 
 Date-stamped IDs like `claude-sonnet-4-20250514` or `anthropic/claude-sonnet-4-20250514` are **not recognized** by OpenRouter.
 
+### Test Results
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | `anthropic/claude-sonnet-4` (valid OpenRouter ID) | **PASSED** |
+| 2 | `claude-sonnet-4-20250514` (Anthropic-style ID) | **FAILED** — "not a valid model ID" |
+| 3 | `anthropic/claude-sonnet-4-20250514` (date-stamped) | **FAILED** — "not a valid model ID" |
+| 4 | API key via `process.env.OPENROUTER_API_KEY` (no explicit apiKey) | **PASSED** |
+| 5 | Full YAML config simulation (provider + model + temperature + maxTokens) | **PASSED** |
+| 6 | Multi-turn + tools with `deepseek/deepseek-r1-0528` (post-fix) | **PASSED** |
+
 ### Available Claude Models on OpenRouter
 
 | OpenRouter Model ID | Description |
 |---|---|
 | `anthropic/claude-opus-4.7` | Claude Opus 4.7 (latest) |
 | `anthropic/claude-opus-4.6` | Claude Opus 4.6 |
-| `anthropic/claude-opus-4.6-fast` | Claude Opus 4.6 (fast mode) |
 | `anthropic/claude-sonnet-4.6` | Claude Sonnet 4.6 |
 | `anthropic/claude-opus-4.5` | Claude Opus 4.5 |
 | `anthropic/claude-sonnet-4.5` | Claude Sonnet 4.5 |
 | `anthropic/claude-haiku-4.5` | Claude Haiku 4.5 |
-| `anthropic/claude-opus-4.1` | Claude Opus 4.1 |
-| `anthropic/claude-opus-4` | Claude Opus 4 |
 | `anthropic/claude-sonnet-4` | Claude Sonnet 4 |
 | `anthropic/claude-3.7-sonnet` | Claude 3.7 Sonnet |
 | `anthropic/claude-3.5-haiku` | Claude 3.5 Haiku |
@@ -78,64 +116,10 @@ llm:
   maxTokens: 4096
 ```
 
-### API Key Configuration
-
-The `OPENROUTER_API_KEY` env var must be set. Two options:
-
-1. **Via ecosystem.config.cjs** (already configured):
-   ```js
-   env: {
-     OPENROUTER_API_KEY: 'sk-or-v1-...',
-   }
-   ```
-
-2. **Via YAML `apiKey` field** (alternative, supports env var interpolation):
-   ```yaml
-   llm:
-     provider: openrouter
-     model: anthropic/claude-sonnet-4
-     apiKey: "${OPENROUTER_API_KEY}"
-   ```
-
-Both methods work — the factory code checks `config.apiKey ?? process.env.OPENROUTER_API_KEY`.
+The `OPENROUTER_API_KEY` env var is already set in `ecosystem.config.cjs`. The factory code picks it up via `config.apiKey ?? process.env.OPENROUTER_API_KEY`.
 
 ---
 
-## Code Review
+## Note
 
-### factory.ts — OpenRouter provider path (lines 17–23)
-
-```typescript
-case 'openrouter': {
-  const provider = createOpenAI({
-    baseURL: config.baseUrl ?? 'https://openrouter.ai/api/v1',
-    apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
-  });
-  return provider(config.model);
-}
-```
-
-- Reuses `@ai-sdk/openai` with OpenRouter's base URL — correct approach.
-- Falls back to env var if no explicit `apiKey` — good.
-- Custom `baseUrl` override supported — good for proxies.
-- No OpenRouter-specific headers (e.g., `HTTP-Referer`, `X-Title`) are set. These are optional but recommended by OpenRouter for app identification and ranking in their leaderboards.
-
-### schema.ts — Validation (line 6)
-
-```typescript
-provider: z.enum(['anthropic', 'openai', 'openrouter', 'ollama']),
-```
-
-`openrouter` is a valid enum value — config validation will pass.
-
----
-
-## Potential Improvement
-
-The `test-openrouter.ts` file in the project root uses an invalid model ID (`anthropic/claude-sonnet-4-20250514`). It should be updated to `anthropic/claude-sonnet-4` to pass.
-
----
-
-## Conclusion
-
-The refactored code supports OpenRouter correctly. The only action needed to switch is updating the `model` field in the YAML to use OpenRouter's model ID format. No code changes required.
+The `test-openrouter.ts` file in the project root uses an invalid model ID (`anthropic/claude-sonnet-4-20250514`). It should be updated to `anthropic/claude-sonnet-4`.
