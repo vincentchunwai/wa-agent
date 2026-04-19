@@ -23,13 +23,17 @@ tools:
   - get-chat-history
   - handoff
 
+
+fetchUrl:
+  provider: jina
+
 routing:
   - type: jid
     match: "85252054066@s.whatsapp.net"
   - type: jid
     match: "85266424992@s.whatsapp.net"
-  - type: mention
-    match: "self"
+#  - type: mention
+#    match: "self"
 memory:
   conversationWindow: 20
   summarizeAfter: 50

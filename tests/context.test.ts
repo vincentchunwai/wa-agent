@@ -24,6 +24,7 @@ vi.mock('fs', async (importOriginal) => {
     ...actual,
     existsSync: vi.fn().mockReturnValue(false),
     readFileSync: vi.fn().mockReturnValue(Buffer.from('fake-image-data')),
+    statSync: vi.fn().mockReturnValue({ size: 1000 }),
   };
 });
 
@@ -35,7 +36,7 @@ import { buildContext, buildImageContent, buildFileContent } from '../src/agent/
 import { listMessages } from '@ibrahimwithi/wu-cli';
 import { getConversation } from '../src/memory/store.js';
 import { getUserProfile } from '../src/memory/profiles.js';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -728,6 +729,37 @@ describe('buildContext — multimodal documents', () => {
 
     const content = (messages[1] as any).content;
     expect(content[0].text).toBe('[Alice]: [document]');
+  });
+
+  it('falls back to text when file exceeds 5 MB size limit', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(statSync).mockReturnValue({ size: 6 * 1024 * 1024 } as any);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[document]');
+  });
+
+  it('includes file content when file is within 5 MB size limit', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(statSync).mockReturnValue({ size: 4 * 1024 * 1024 } as any);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[1]).toMatchObject({ type: 'file', mediaType: 'application/pdf' });
   });
 });
 

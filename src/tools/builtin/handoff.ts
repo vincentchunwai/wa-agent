@@ -1,6 +1,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { sendText } from '@ibrahimwithi/wu-cli';
+import { sendText, searchChats, searchContacts } from '@ibrahimwithi/wu-cli';
 import { setHandoffState } from '../../memory/store.js';
 import type { ToolContext } from '../types.js';
 
@@ -9,6 +9,24 @@ function getOwnJid(ctx: ToolContext): string | null {
   if (!user?.id) return null;
   // Normalize: strip device suffix (e.g. "123:45@s.whatsapp.net" → "123@s.whatsapp.net")
   return user.id.replace(/:\d+@/, '@');
+}
+
+/** Resolve a chat JID to a human-readable name */
+function getChatName(chatJid: string, senderName: string | null): string {
+  // Try chat table first (works for groups and DMs with known names)
+  const chats = searchChats(chatJid, { limit: 1 });
+  if (chats.length > 0 && chats[0].name) return chats[0].name;
+
+  // Try contact table for DMs
+  const contacts = searchContacts(chatJid, { limit: 1 });
+  if (contacts.length > 0) {
+    const c = contacts[0];
+    if (c.saved_name) return c.saved_name;
+    if (c.push_name) return c.push_name;
+  }
+
+  // Fall back to sender name or JID
+  return senderName ?? chatJid;
 }
 
 export function createHandoffTool(ctx: ToolContext) {
@@ -43,8 +61,9 @@ export function createHandoffTool(ctx: ToolContext) {
       setHandoffState(ctx.agentConfig.name, ctx.chatJid, true);
 
       // Notify the operator (send to self or escalation target)
+      const chatName = getChatName(ctx.chatJid, ctx.senderName);
       const notification = `🔔 *Handoff from ${ctx.agentConfig.name}*\n\n` +
-        `*Chat:* ${ctx.chatJid}\n` +
+        `*Chat:* ${chatName}\n` +
         `*Reason:* ${reason}\n\n` +
         `*Summary:*\n${summary}\n\n` +
         `_Reply /done here to resolve this handoff._`;

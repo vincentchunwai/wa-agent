@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import type { ModelMessage, UserModelMessage } from 'ai';
 import type { AgentConfig } from './types.js';
 import type { ToolContext } from '../tools/types.js';
@@ -14,6 +14,9 @@ const IMAGE_TYPES = new Set(['image']);
 
 /** Media types that support file content (PDF, docs) */
 const FILE_TYPES = new Set(['document']);
+
+/** Maximum file size for documents sent to the LLM (5 MB) */
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 /** Format sender prefix for group chats */
 function senderPrefix(msg: MessageRow, chatJid: string): string {
@@ -35,9 +38,14 @@ function hasReadableImage(msg: MessageRow): boolean {
   return IMAGE_TYPES.has(msg.type) && !!msg.media_path && existsSync(msg.media_path);
 }
 
-/** Check if a message has a readable document/file on disk */
+/** Check if a message has a readable document/file on disk within size limit */
 function hasReadableFile(msg: MessageRow): boolean {
-  return FILE_TYPES.has(msg.type) && !!msg.media_path && existsSync(msg.media_path);
+  if (!FILE_TYPES.has(msg.type) || !msg.media_path || !existsSync(msg.media_path)) return false;
+  try {
+    return statSync(msg.media_path).size <= MAX_FILE_SIZE;
+  } catch {
+    return false;
+  }
 }
 
 /** Build a multimodal UserContent array for a message with an image */
