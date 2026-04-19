@@ -5,12 +5,20 @@ import type { AgentConfig } from '../src/agent/types.js';
 vi.mock('@ibrahimwithi/wu-cli', () => ({
   searchChats: vi.fn(),
   searchContacts: vi.fn(),
+  AUTH_DIR: '/mock/auth',
 }));
 
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return { ...actual, readFileSync: vi.fn() };
+});
+
 import { searchChats, searchContacts } from '@ibrahimwithi/wu-cli';
+import { readFileSync } from 'fs';
 
 const mockSearchChats = vi.mocked(searchChats);
 const mockSearchContacts = vi.mocked(searchContacts);
+const mockReadFileSync = vi.mocked(readFileSync);
 
 function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   return {
@@ -193,5 +201,115 @@ describe('resolveRoutingNames', () => {
 
     expect(config.routing[0].match).toBe('Team Chat');
     expect(result.unresolved).toContain('Team Chat');
+  });
+
+  // --- Phone-to-LID resolution tests ---
+
+  it('resolves @s.whatsapp.net JID to @lid via mapping file', () => {
+    mockReadFileSync.mockReturnValue('"999888777"');
+
+    const config = makeConfig({
+      routing: [{ type: 'jid', match: '85252054066@s.whatsapp.net' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(mockReadFileSync).toHaveBeenCalledWith('/mock/auth/lid-mapping-85252054066.json', 'utf-8');
+    expect(config.routing[0].match).toBe('999888777@lid');
+    expect(result.resolved).toBe(1);
+  });
+
+  it('resolves bare phone number to @lid', () => {
+    mockReadFileSync.mockReturnValue('"111222333"');
+
+    const config = makeConfig({
+      routing: [{ type: 'jid', match: '85252054066' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(mockReadFileSync).toHaveBeenCalledWith('/mock/auth/lid-mapping-85252054066.json', 'utf-8');
+    expect(config.routing[0].match).toBe('111222333@lid');
+    expect(result.resolved).toBe(1);
+  });
+
+  it('resolves +prefixed phone number to @lid', () => {
+    mockReadFileSync.mockReturnValue('"444555666"');
+
+    const config = makeConfig({
+      routing: [{ type: 'jid', match: '+85252054066' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(mockReadFileSync).toHaveBeenCalledWith('/mock/auth/lid-mapping-85252054066.json', 'utf-8');
+    expect(config.routing[0].match).toBe('444555666@lid');
+    expect(result.resolved).toBe(1);
+  });
+
+  it('falls through to name resolution when phone mapping not found', () => {
+    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT'); });
+    mockSearchContacts.mockReturnValue([
+      { jid: '123@s.whatsapp.net', phone: '+123', push_name: 'John', saved_name: null, is_business: 0, updated_at: 1000 },
+    ]);
+
+    const config = makeConfig({
+      routing: [{ type: 'jid', match: 'John' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(config.routing[0].match).toBe('123@s.whatsapp.net');
+    expect(result.resolved).toBe(1);
+  });
+
+  it('leaves @lid JIDs unchanged', () => {
+    const config = makeConfig({
+      routing: [{ type: 'jid', match: '208314688344081@lid' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(config.routing[0].match).toBe('208314688344081@lid');
+    expect(result.resolved).toBe(0);
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+
+  it('leaves @g.us JIDs unchanged', () => {
+    const config = makeConfig({
+      routing: [{ type: 'group', match: '120363xxx@g.us' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(config.routing[0].match).toBe('120363xxx@g.us');
+    expect(result.resolved).toBe(0);
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+
+  it('resolves phone in handoff.escalateTo', () => {
+    mockReadFileSync.mockReturnValue('"777888999"');
+
+    const config = makeConfig({
+      handoff: { enabled: true, escalateTo: '85252054066@s.whatsapp.net' },
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(config.handoff!.escalateTo).toBe('777888999@lid');
+    expect(result.resolved).toBe(1);
+  });
+
+  it('resolves phone in trigger target', () => {
+    mockReadFileSync.mockReturnValue('"111000222"');
+
+    const config = makeConfig({
+      triggers: [{ type: 'cron', schedule: '0 9 * * *', action: 'send_report', target: '+85252054066' }],
+    });
+
+    const result = resolveRoutingNames([config]);
+
+    expect(config.triggers![0].target).toBe('111000222@lid');
+    expect(result.resolved).toBe(1);
   });
 });

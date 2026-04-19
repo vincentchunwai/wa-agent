@@ -3,7 +3,7 @@ description: General-purpose WhatsApp assistant
 
 llm:
   provider: openrouter
-  model: deepseek/deepseek-r1-0528
+  model: anthropic/claude-sonnet-4
   temperature: 0.7
   maxTokens: 4096
 
@@ -19,16 +19,24 @@ tools:
   - send-reaction
   - schedule
   - get-chat-history
+  - handoff
 
 routing:
   - type: jid
-    match: "208314688344081@lid"
+    match: "85252054066@s.whatsapp.net"
 
 memory:
   conversationWindow: 20
   summarizeAfter: 50
   userProfiles: true
   profileExtractEvery: 5
+
+handoff:
+  enabled: true
+  escalateTo: "85266424992@s.whatsapp.net"
+  conditions:
+    - "User explicitly asks for a human"
+    - "User is frustrated after 3 failed attempts"
 
 maxSteps: 10
 cooldownMs: 3000
