@@ -14,6 +14,13 @@ export function createModel(config: LLMConfig): LanguageModel {
       const provider = createOpenAI(config.baseUrl ? { baseURL: config.baseUrl } : {});
       return provider(config.model);
     }
+    case 'openrouter': {
+      const provider = createOpenAI({
+        baseURL: config.baseUrl ?? 'https://openrouter.ai/api/v1',
+        apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
+      });
+      return provider(config.model);
+    }
     case 'ollama': {
       const provider = createOllama(config.baseUrl ? { baseURL: config.baseUrl } : {});
       return provider(config.model) as unknown as LanguageModel;

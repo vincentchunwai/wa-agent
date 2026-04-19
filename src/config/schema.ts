@@ -3,11 +3,12 @@ import { z } from 'zod';
 // --- Agent YAML Schema ---
 
 const LLMConfigSchema = z.object({
-  provider: z.enum(['anthropic', 'openai', 'ollama']),
+  provider: z.enum(['anthropic', 'openai', 'openrouter', 'ollama']),
   model: z.string(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().positive().optional(),
   baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
 });
 
 const RoutingRuleSchema = z.object({

@@ -16,11 +16,12 @@ export interface AgentConfig {
 }
 
 export interface LLMConfig {
-  provider: 'anthropic' | 'openai' | 'ollama';
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'ollama';
   model: string;
   temperature?: number;
   maxTokens?: number;
   baseUrl?: string;
+  apiKey?: string;
 }
 
 export interface RoutingRule {
