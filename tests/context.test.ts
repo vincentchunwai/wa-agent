@@ -31,7 +31,7 @@ vi.mock('fs', async (importOriginal) => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { buildContext, buildImageContent } from '../src/agent/context.js';
+import { buildContext, buildImageContent, buildFileContent } from '../src/agent/context.js';
 import { listMessages } from '@ibrahimwithi/wu-cli';
 import { getConversation } from '../src/memory/store.js';
 import { getUserProfile } from '../src/memory/profiles.js';
@@ -100,6 +100,34 @@ function makeImageMessage(overrides: Record<string, unknown> = {}) {
     location_name: null,
     chat_jid: '1234@s.whatsapp.net',
     raw: null,
+    created_at: 1,
+    ...overrides,
+  };
+}
+
+function makeDocumentMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'doc-1',
+    body: null,
+    is_from_me: false,
+    type: 'document',
+    sender_jid: '5678@s.whatsapp.net',
+    sender_name: 'Bob',
+    timestamp: 1,
+    media_mime: 'application/pdf',
+    media_path: '/tmp/media/doc-1.pdf',
+    media_size: 50000,
+    media_direct_path: null,
+    media_key: null,
+    media_file_sha256: null,
+    media_file_enc_sha256: null,
+    media_file_length: null,
+    quoted_id: null,
+    location_lat: null,
+    location_lon: null,
+    location_name: null,
+    chat_jid: '1234@s.whatsapp.net',
+    raw: JSON.stringify({ message: { documentMessage: { fileName: 'report.pdf' } } }),
     created_at: 1,
     ...overrides,
   };
@@ -606,6 +634,150 @@ describe('buildImageContent', () => {
     vi.mocked(readFileSync).mockImplementation(() => { throw new Error('not found'); });
     const msg = makeImageMessage() as any;
     const parts = buildImageContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe('text');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multimodal / Document tests
+// ---------------------------------------------------------------------------
+
+describe('buildContext — multimodal documents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listMessages).mockReturnValue([]);
+    vi.mocked(getConversation).mockReturnValue(null);
+    vi.mocked(getUserProfile).mockReturnValue(null);
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readFileSync).mockReturnValue(Buffer.from('fake-pdf-data'));
+  });
+
+  it('produces file content array for document with media_path on disk', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1].role).toBe('user');
+
+    const content = (messages[1] as any).content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({ type: 'text', text: '[document]' });
+    expect(content[1]).toMatchObject({ type: 'file', mediaType: 'application/pdf', filename: 'report.pdf' });
+    expect(Buffer.isBuffer(content[1].data)).toBe(true);
+  });
+
+  it('includes caption in text part when document has body', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage({ body: 'Please review this' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(content[0]).toEqual({ type: 'text', text: 'Please review this' });
+  });
+
+  it('falls back to text [document] when media_path is null', () => {
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage({ media_path: null }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[document]');
+  });
+
+  it('falls back to text [document] when file does not exist on disk', () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[document]');
+  });
+
+  it('includes sender prefix in group chats', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeDocumentMessage({ sender_name: 'Alice' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext({ chatJid: 'group-123@g.us' });
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(content[0].text).toBe('[Alice]: [document]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFileContent unit tests
+// ---------------------------------------------------------------------------
+
+describe('buildFileContent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(readFileSync).mockReturnValue(Buffer.from('test-pdf-data'));
+  });
+
+  it('returns text + file parts for a basic document message', () => {
+    const msg = makeDocumentMessage() as any;
+    const parts = buildFileContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({ type: 'text', text: '[document]' });
+    expect(parts[1].type).toBe('file');
+    expect(parts[1].mediaType).toBe('application/pdf');
+    expect(parts[1].filename).toBe('report.pdf');
+    expect(Buffer.isBuffer(parts[1].data)).toBe(true);
+  });
+
+  it('uses caption as text when body is present', () => {
+    const msg = makeDocumentMessage({ body: 'My report' }) as any;
+    const parts = buildFileContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts[0]).toEqual({ type: 'text', text: 'My report' });
+  });
+
+  it('includes sender prefix in group chats', () => {
+    const msg = makeDocumentMessage({ sender_name: 'Charlie' }) as any;
+    const parts = buildFileContent(msg, 'group@g.us');
+
+    expect(parts[0].text).toBe('[Charlie]: [document]');
+  });
+
+  it('omits filename when raw message has no documentMessage', () => {
+    const msg = makeDocumentMessage({ raw: null }) as any;
+    const parts = buildFileContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts[1].filename).toBeUndefined();
+  });
+
+  it('returns only text part when readFileSync throws', () => {
+    vi.mocked(readFileSync).mockImplementation(() => { throw new Error('not found'); });
+    const msg = makeDocumentMessage() as any;
+    const parts = buildFileContent(msg, '1234@s.whatsapp.net');
 
     expect(parts).toHaveLength(1);
     expect(parts[0].type).toBe('text');

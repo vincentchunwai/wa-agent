@@ -12,6 +12,9 @@ const logger = createChildLogger('context');
 /** Media types that support vision */
 const IMAGE_TYPES = new Set(['image']);
 
+/** Media types that support file content (PDF, docs) */
+const FILE_TYPES = new Set(['document']);
+
 /** Format sender prefix for group chats */
 function senderPrefix(msg: MessageRow, chatJid: string): string {
   if (msg.is_from_me) return '';
@@ -30,6 +33,11 @@ function formatMessageText(msg: MessageRow, chatJid: string): string {
 /** Check if a message has a readable image on disk */
 function hasReadableImage(msg: MessageRow): boolean {
   return IMAGE_TYPES.has(msg.type) && !!msg.media_path && existsSync(msg.media_path);
+}
+
+/** Check if a message has a readable document/file on disk */
+function hasReadableFile(msg: MessageRow): boolean {
+  return FILE_TYPES.has(msg.type) && !!msg.media_path && existsSync(msg.media_path);
 }
 
 /** Build a multimodal UserContent array for a message with an image */
@@ -52,6 +60,42 @@ export function buildImageContent(
     parts.push({ type: 'image', image: imageBuffer, mediaType });
   } catch (err) {
     logger.warn({ err, msgId: msg.id, path: msg.media_path }, 'Failed to read image file');
+  }
+
+  return parts;
+}
+
+/** Build a multimodal UserContent array for a message with a document/file */
+export function buildFileContent(
+  msg: MessageRow,
+  chatJid: string,
+): Array<{ type: 'text'; text: string } | { type: 'file'; data: Buffer; mediaType: string; filename?: string }> {
+  const parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: Buffer; mediaType: string; filename?: string }> = [];
+
+  // Add text part (caption or type label)
+  const prefix = senderPrefix(msg, chatJid);
+  const caption = msg.body || '';
+  const textContent = prefix + (caption || `[${msg.type}]`);
+  parts.push({ type: 'text', text: textContent });
+
+  // Add file part
+  try {
+    const fileBuffer = readFileSync(msg.media_path!);
+    const mediaType = msg.media_mime ?? 'application/octet-stream';
+
+    // Try to extract filename from raw Baileys message
+    let filename: string | undefined;
+    if (msg.raw) {
+      try {
+        const raw = JSON.parse(msg.raw);
+        filename = raw?.message?.documentMessage?.fileName
+          ?? raw?.message?.documentWithCaptionMessage?.message?.documentMessage?.fileName;
+      } catch { /* ignore parse errors */ }
+    }
+
+    parts.push({ type: 'file', data: fileBuffer, mediaType, ...(filename ? { filename } : {}) });
+  } catch (err) {
+    logger.warn({ err, msgId: msg.id, path: msg.media_path }, 'Failed to read file');
   }
 
   return parts;
@@ -103,11 +147,16 @@ export function buildContext(config: AgentConfig, ctx: ToolContext): ModelMessag
   for (const msg of history.reverse()) {
     const role = msg.is_from_me ? 'assistant' : 'user';
 
-    // Only user messages can have images (assistant messages are always text)
+    // Only user messages can have images/files (assistant messages are always text)
     if (role === 'user' && hasReadableImage(msg)) {
       const imageContent = buildImageContent(msg, ctx.chatJid);
-      // Image messages can't be merged — push as a standalone user message
       parts.push({ role: 'user', content: imageContent } as UserModelMessage);
+      continue;
+    }
+
+    if (role === 'user' && hasReadableFile(msg)) {
+      const fileContent = buildFileContent(msg, ctx.chatJid);
+      parts.push({ role: 'user', content: fileContent } as UserModelMessage);
       continue;
     }
 

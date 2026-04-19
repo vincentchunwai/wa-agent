@@ -1,5 +1,5 @@
 import { generateText, stepCountIs, NoSuchToolError, InvalidToolInputError } from 'ai';
-import { sendText, sendTypingIndicator } from '@ibrahimwithi/wu-cli';
+import { sendText, sendTypingIndicator, downloadMedia } from '@ibrahimwithi/wu-cli';
 import type { AgentInstance } from './types.js';
 import type { ToolContext } from '../tools/types.js';
 import type { ParsedMessage } from '@ibrahimwithi/wu-cli';
@@ -21,6 +21,15 @@ export async function handleMessage(
   await sendTypingIndicator(ctx.sock, ctx.chatJid, true);
 
   try {
+    // 1a. Download media if present (updates media_path in DB for context builder)
+    if (_msg.mediaMime) {
+      try {
+        await downloadMedia(_msg.id, ctx.sock, ctx.config);
+      } catch (err) {
+        logger.warn({ err, msgId: _msg.id, mime: _msg.mediaMime }, 'Failed to download media');
+      }
+    }
+
     const rawMessages = buildContext(agent.config, ctx);
     const tools = resolveTools(agent.config.tools, ctx);
 
