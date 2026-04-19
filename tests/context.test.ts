@@ -18,14 +18,24 @@ vi.mock('../src/memory/profiles.js', () => ({
   getUserProfile: vi.fn().mockReturnValue(null),
 }));
 
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn().mockReturnValue(false),
+    readFileSync: vi.fn().mockReturnValue(Buffer.from('fake-image-data')),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { buildContext } from '../src/agent/context.js';
+import { buildContext, buildImageContent } from '../src/agent/context.js';
 import { listMessages } from '@ibrahimwithi/wu-cli';
 import { getConversation } from '../src/memory/store.js';
 import { getUserProfile } from '../src/memory/profiles.js';
+import { existsSync, readFileSync } from 'fs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,6 +77,34 @@ function mockToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
+function makeImageMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'img-1',
+    body: null,
+    is_from_me: false,
+    type: 'image',
+    sender_jid: '5678@s.whatsapp.net',
+    sender_name: 'Bob',
+    timestamp: 1,
+    media_mime: 'image/jpeg',
+    media_path: '/tmp/media/img-1.jpg',
+    media_size: 12345,
+    media_direct_path: null,
+    media_key: null,
+    media_file_sha256: null,
+    media_file_enc_sha256: null,
+    media_file_length: null,
+    quoted_id: null,
+    location_lat: null,
+    location_lon: null,
+    location_name: null,
+    chat_jid: '1234@s.whatsapp.net',
+    raw: null,
+    created_at: 1,
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -78,6 +116,8 @@ describe('buildContext', () => {
     vi.mocked(listMessages).mockReturnValue([]);
     vi.mocked(getConversation).mockReturnValue(null);
     vi.mocked(getUserProfile).mockReturnValue(null);
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readFileSync).mockReturnValue(Buffer.from('fake-image-data'));
   });
 
   // ---- 1. No summary, no history ----
@@ -313,10 +353,10 @@ describe('buildContext', () => {
     expect((messages[3] as any).content).toBe('third (newest)');
   });
 
-  // ---- 9. Non-text message type fallback ----
-  it('uses [type] placeholder when body is null', () => {
+  // ---- 9. Non-text message type fallback (no media_path) ----
+  it('uses [type] placeholder when body is null and no media on disk', () => {
     vi.mocked(listMessages).mockReturnValue([
-      { body: null, is_from_me: false, type: 'image', sender_jid: '5678@s.whatsapp.net', sender_name: 'Bob', timestamp: 1 },
+      makeImageMessage({ media_path: null }),
     ] as any);
 
     const config = minimalAgentConfig();
@@ -339,5 +379,235 @@ describe('buildContext', () => {
       limit: 50,
       after: undefined,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multimodal / Image tests
+// ---------------------------------------------------------------------------
+
+describe('buildContext — multimodal images', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listMessages).mockReturnValue([]);
+    vi.mocked(getConversation).mockReturnValue(null);
+    vi.mocked(getUserProfile).mockReturnValue(null);
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readFileSync).mockReturnValue(Buffer.from('fake-image-data'));
+  });
+
+  it('produces multimodal content array for image with media_path on disk', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    // system + 1 image message
+    expect(messages).toHaveLength(2);
+    expect(messages[1].role).toBe('user');
+
+    const content = (messages[1] as any).content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({ type: 'text', text: '[image]' });
+    expect(content[1]).toMatchObject({ type: 'image', mediaType: 'image/jpeg' });
+    expect(Buffer.isBuffer(content[1].image)).toBe(true);
+  });
+
+  it('includes caption in text part when image has body', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ body: 'Check this out!' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(content[0]).toEqual({ type: 'text', text: 'Check this out!' });
+  });
+
+  it('falls back to text [image] when media_path does not exist on disk', () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(messages[1].role).toBe('user');
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[image]');
+  });
+
+  it('falls back to text when media_path is null', () => {
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ media_path: null }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[image]');
+  });
+
+  it('does not produce multimodal content for assistant (is_from_me) image messages', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ is_from_me: true }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    // Assistant messages are always text
+    expect(messages[1].role).toBe('assistant');
+    expect(typeof (messages[1] as any).content).toBe('string');
+  });
+
+  it('does not merge image messages with adjacent text messages', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      // DESC order: newest first
+      { body: 'what is this?', is_from_me: false, type: 'text', sender_jid: '5678@s.whatsapp.net', sender_name: 'Bob', timestamp: 3 },
+      makeImageMessage({ timestamp: 2 }),
+      { body: 'hello', is_from_me: false, type: 'text', sender_jid: '5678@s.whatsapp.net', sender_name: 'Bob', timestamp: 1 },
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    // system + hello + image + what is this = 4 messages
+    // "hello" and image are both user role but image can't merge
+    // "what is this?" follows image and also can't merge with array content
+    expect(messages).toHaveLength(4);
+    expect(typeof (messages[1] as any).content).toBe('string'); // hello
+    expect(Array.isArray((messages[2] as any).content)).toBe(true); // image
+    expect(typeof (messages[3] as any).content).toBe('string'); // what is this?
+  });
+
+  it('includes sender prefix in image text part for group chats', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ sender_name: 'Alice' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext({ chatJid: 'group-123@g.us' });
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(content[0].text).toBe('[Alice]: [image]');
+  });
+
+  it('handles image with caption in group chat', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ body: 'Look at this', sender_name: 'Alice' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext({ chatJid: 'group-123@g.us' });
+    const messages = buildContext(config, ctx);
+
+    const content = (messages[1] as any).content;
+    expect(content[0].text).toBe('[Alice]: Look at this');
+  });
+
+  it('handles readFileSync failure gracefully (returns text part only)', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readFileSync).mockImplementation(() => { throw new Error('EACCES'); });
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage(),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    // Should still produce a message, just with text part only
+    const content = (messages[1] as any).content;
+    expect(Array.isArray(content)).toBe(true);
+    // Only text part since image read failed
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe('text');
+  });
+
+  it('does not treat video/audio/document as image content', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(listMessages).mockReturnValue([
+      makeImageMessage({ type: 'video', media_mime: 'video/mp4' }),
+    ] as any);
+
+    const config = minimalAgentConfig();
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    // Video should be text fallback, not multimodal
+    expect(typeof (messages[1] as any).content).toBe('string');
+    expect((messages[1] as any).content).toBe('[video]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildImageContent unit tests
+// ---------------------------------------------------------------------------
+
+describe('buildImageContent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(readFileSync).mockReturnValue(Buffer.from('test-png-data'));
+  });
+
+  it('returns text + image parts for a basic image message', () => {
+    const msg = makeImageMessage() as any;
+    const parts = buildImageContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({ type: 'text', text: '[image]' });
+    expect(parts[1].type).toBe('image');
+    expect(parts[1].mediaType).toBe('image/jpeg');
+    expect(Buffer.isBuffer(parts[1].image)).toBe(true);
+  });
+
+  it('uses caption as text when body is present', () => {
+    const msg = makeImageMessage({ body: 'My photo' }) as any;
+    const parts = buildImageContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts[0]).toEqual({ type: 'text', text: 'My photo' });
+  });
+
+  it('includes sender prefix in group chats', () => {
+    const msg = makeImageMessage({ sender_name: 'Charlie' }) as any;
+    const parts = buildImageContent(msg, 'group@g.us');
+
+    expect(parts[0].text).toBe('[Charlie]: [image]');
+  });
+
+  it('reads the correct file path', () => {
+    const msg = makeImageMessage({ media_path: '/data/media/photo.jpg' }) as any;
+    buildImageContent(msg, '1234@s.whatsapp.net');
+
+    expect(readFileSync).toHaveBeenCalledWith('/data/media/photo.jpg');
+  });
+
+  it('returns only text part when readFileSync throws', () => {
+    vi.mocked(readFileSync).mockImplementation(() => { throw new Error('not found'); });
+    const msg = makeImageMessage() as any;
+    const parts = buildImageContent(msg, '1234@s.whatsapp.net');
+
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe('text');
   });
 });

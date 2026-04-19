@@ -1,21 +1,65 @@
-import type { ModelMessage } from 'ai';
+import { readFileSync, existsSync } from 'fs';
+import type { ModelMessage, UserModelMessage } from 'ai';
 import type { AgentConfig } from './types.js';
 import type { ToolContext } from '../tools/types.js';
 import { listMessages, type MessageRow } from '@ibrahimwithi/wu-cli';
 import { getConversation } from '../memory/store.js';
 import { getUserProfile } from '../memory/profiles.js';
+import { createChildLogger } from '../util/logger.js';
 
-/** Format a stored message for LLM context */
-function formatMessageForLLM(msg: MessageRow, chatJid: string): string {
+const logger = createChildLogger('context');
+
+/** Media types that support vision */
+const IMAGE_TYPES = new Set(['image']);
+
+/** Format sender prefix for group chats */
+function senderPrefix(msg: MessageRow, chatJid: string): string {
+  if (msg.is_from_me) return '';
+  if (!chatJid.endsWith('@g.us')) return '';
+  const sender = msg.sender_name ?? msg.sender_jid?.split('@')[0] ?? 'Unknown';
+  return `[${sender}]: `;
+}
+
+/** Format a stored message for LLM context (text-only) */
+function formatMessageText(msg: MessageRow, chatJid: string): string {
+  const prefix = senderPrefix(msg, chatJid);
   const text = msg.body ?? `[${msg.type}]`;
-  if (msg.is_from_me) return text;
+  return prefix + text;
+}
 
-  // Only prefix with sender name in group chats
-  if (chatJid.endsWith('@g.us')) {
-    const sender = msg.sender_name ?? msg.sender_jid?.split('@')[0] ?? 'Unknown';
-    return `[${sender}]: ${text}`;
+/** Check if a message has a readable image on disk */
+function hasReadableImage(msg: MessageRow): boolean {
+  return IMAGE_TYPES.has(msg.type) && !!msg.media_path && existsSync(msg.media_path);
+}
+
+/** Build a multimodal UserContent array for a message with an image */
+export function buildImageContent(
+  msg: MessageRow,
+  chatJid: string,
+): Array<{ type: 'text'; text: string } | { type: 'image'; image: Buffer; mediaType?: string }> {
+  const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Buffer; mediaType?: string }> = [];
+
+  // Add text part (caption or type label)
+  const prefix = senderPrefix(msg, chatJid);
+  const caption = msg.body || '';
+  const textContent = prefix + (caption || `[${msg.type}]`);
+  parts.push({ type: 'text', text: textContent });
+
+  // Add image part
+  try {
+    const imageBuffer = readFileSync(msg.media_path!);
+    const mediaType = msg.media_mime ?? undefined;
+    parts.push({ type: 'image', image: imageBuffer, mediaType });
+  } catch (err) {
+    logger.warn({ err, msgId: msg.id, path: msg.media_path }, 'Failed to read image file');
   }
-  return text;
+
+  return parts;
+}
+
+/** Check if content is an array (multimodal) */
+function isArrayContent(content: unknown): content is Array<unknown> {
+  return Array.isArray(content);
 }
 
 export function buildContext(config: AgentConfig, ctx: ToolContext): ModelMessage[] {
@@ -58,12 +102,21 @@ export function buildContext(config: AgentConfig, ctx: ToolContext): ModelMessag
   // listMessages returns DESC order, reverse to oldest first
   for (const msg of history.reverse()) {
     const role = msg.is_from_me ? 'assistant' : 'user';
-    const content = formatMessageForLLM(msg, ctx.chatJid);
+
+    // Only user messages can have images (assistant messages are always text)
+    if (role === 'user' && hasReadableImage(msg)) {
+      const imageContent = buildImageContent(msg, ctx.chatJid);
+      // Image messages can't be merged — push as a standalone user message
+      parts.push({ role: 'user', content: imageContent } as UserModelMessage);
+      continue;
+    }
+
+    const content = formatMessageText(msg, ctx.chatJid);
 
     // Merge consecutive same-role messages to avoid provider rejections
     const last = parts[parts.length - 1];
     if (last && last.role === role && typeof last.content === 'string') {
-      last.content += '\n' + content;
+      (last as { content: string }).content += '\n' + content;
     } else {
       parts.push({ role, content });
     }

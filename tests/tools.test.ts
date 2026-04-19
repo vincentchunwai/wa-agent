@@ -34,7 +34,7 @@ function mockToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
       auth: {},
       db: {},
       log: { level: 'info' as const },
-      webSearch: { provider: 'tavily' as const },
+      webSearch: { provider: 'tavily' as const, apiKey: 'test-key' },
       fetchUrl: { provider: 'jina' as const },
     },
     ...overrides,
@@ -50,6 +50,7 @@ const BUILTIN_TOOL_NAMES = [
   'fetch-url',
   'schedule',
   'handoff',
+  'resume-handoff',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -105,10 +106,10 @@ describe('resolveTools', () => {
 // ---------------------------------------------------------------------------
 
 describe('builtin tools', () => {
-  it('all 8 builtin tools are resolvable', () => {
+  it('all 9 builtin tools are resolvable', () => {
     const ctx = mockToolContext();
     const tools = resolveTools([...BUILTIN_TOOL_NAMES], ctx);
-    expect(Object.keys(tools)).toHaveLength(8);
+    expect(Object.keys(tools)).toHaveLength(9);
     for (const name of BUILTIN_TOOL_NAMES) {
       expect(tools[name]).toBeDefined();
     }

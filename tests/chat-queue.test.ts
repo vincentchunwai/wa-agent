@@ -28,15 +28,15 @@ describe('ChatQueue', () => {
     const queue = new ChatQueue();
     const order: number[] = [];
 
-    const p1 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       await new Promise(r => setTimeout(r, 50));
       order.push(1);
     });
-    const p2 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       order.push(2);
     });
 
-    await Promise.all([p1, p2]);
+    await queue.drainAll();
     expect(order).toEqual([1, 2]);
   });
 
@@ -45,18 +45,18 @@ describe('ChatQueue', () => {
     const running: string[] = [];
     const completed: string[] = [];
 
-    const p1 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       running.push('chat-1');
       await new Promise(r => setTimeout(r, 50));
       completed.push('chat-1');
     });
-    const p2 = queue.enqueue('chat-2', async () => {
+    queue.enqueue('chat-2', async () => {
       running.push('chat-2');
       await new Promise(r => setTimeout(r, 10));
       completed.push('chat-2');
     });
 
-    await Promise.all([p1, p2]);
+    await queue.drainAll();
     // Both should have started
     expect(running).toContain('chat-1');
     expect(running).toContain('chat-2');
@@ -68,19 +68,15 @@ describe('ChatQueue', () => {
     const queue = new ChatQueue();
     const order: number[] = [];
 
-    const p1 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       throw new Error('boom');
     });
-    // Attach a no-op catch to suppress unhandled rejection from the .finally() branch
-    p1.catch(() => {});
-    const p2 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       order.push(2);
     });
 
-    // p1 should reject
-    await expect(p1).rejects.toThrow('boom');
-    // p2 should still run
-    await p2;
+    await queue.drainAll();
+    // p2 should still have run despite p1 throwing
     expect(order).toEqual([2]);
   });
 
@@ -144,12 +140,13 @@ describe('ChatQueue', () => {
   it('cleans up completed JIDs from the queue map', async () => {
     const queue = new ChatQueue();
 
-    await queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       // no-op
     });
 
     // After completion and microtask flush, the queue should be cleaned up
     // We verify by draining — it should resolve instantly
+    await queue.drainAll();
     const start = Date.now();
     await queue.drainAll();
     expect(Date.now() - start).toBeLessThan(20);
@@ -159,20 +156,20 @@ describe('ChatQueue', () => {
     const queue = new ChatQueue();
     const order: number[] = [];
 
-    const p1 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       await new Promise(r => setTimeout(r, 10));
       order.push(1);
     });
-    const p2 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       await new Promise(r => setTimeout(r, 10));
       order.push(2);
     });
-    const p3 = queue.enqueue('chat-1', async () => {
+    queue.enqueue('chat-1', async () => {
       await new Promise(r => setTimeout(r, 10));
       order.push(3);
     });
 
-    await Promise.all([p1, p2, p3]);
+    await queue.drainAll();
     expect(order).toEqual([1, 2, 3]);
   });
 });

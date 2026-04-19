@@ -127,6 +127,7 @@ describe('createFilterMiddleware', () => {
 describe('CooldownTracker', () => {
   let tracker: CooldownTracker;
   const cooldownMs = 5000;
+  const agentName = 'test-agent';
   const chatJid = 'user-a@s.whatsapp.net';
 
   beforeEach(() => {
@@ -139,43 +140,52 @@ describe('CooldownTracker', () => {
   });
 
   it('first message always passes (no prior response)', () => {
-    expect(tracker.check(chatJid, cooldownMs)).toBe(true);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(true);
   });
 
   it('message within cooldown period is rejected', () => {
-    tracker.recordResponse(chatJid);
+    tracker.recordResponse(agentName, chatJid);
     vi.advanceTimersByTime(2000); // 2s < 5s cooldown
-    expect(tracker.check(chatJid, cooldownMs)).toBe(false);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(false);
   });
 
   it('message after cooldown period passes', () => {
-    tracker.recordResponse(chatJid);
+    tracker.recordResponse(agentName, chatJid);
     vi.advanceTimersByTime(5001); // just past cooldown
-    expect(tracker.check(chatJid, cooldownMs)).toBe(true);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(true);
   });
 
   it('different chats have independent cooldowns', () => {
     const chatB = 'user-b@s.whatsapp.net';
-    tracker.recordResponse(chatJid);
+    tracker.recordResponse(agentName, chatJid);
     vi.advanceTimersByTime(2000);
 
     // chatJid in cooldown, chatB is not
-    expect(tracker.check(chatJid, cooldownMs)).toBe(false);
-    expect(tracker.check(chatB, cooldownMs)).toBe(true);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(false);
+    expect(tracker.check(agentName, chatB, cooldownMs)).toBe(true);
+  });
+
+  it('different agents have independent cooldowns for the same chat', () => {
+    tracker.recordResponse('agent-a', chatJid);
+    vi.advanceTimersByTime(2000);
+
+    // agent-a in cooldown, agent-b is not
+    expect(tracker.check('agent-a', chatJid, cooldownMs)).toBe(false);
+    expect(tracker.check('agent-b', chatJid, cooldownMs)).toBe(true);
   });
 
   it('recordResponse() resets the cooldown timer', () => {
-    tracker.recordResponse(chatJid);
+    tracker.recordResponse(agentName, chatJid);
     vi.advanceTimersByTime(4000); // 4s elapsed
 
     // Record a new response — timer resets
-    tracker.recordResponse(chatJid);
+    tracker.recordResponse(agentName, chatJid);
     vi.advanceTimersByTime(2000); // only 2s since reset
 
-    expect(tracker.check(chatJid, cooldownMs)).toBe(false);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(false);
 
     vi.advanceTimersByTime(3001); // now 5001ms since reset
-    expect(tracker.check(chatJid, cooldownMs)).toBe(true);
+    expect(tracker.check(agentName, chatJid, cooldownMs)).toBe(true);
   });
 });
 
@@ -186,6 +196,7 @@ describe('CooldownTracker', () => {
 describe('RateLimiter', () => {
   const windowMs = 60_000; // 1 minute window
   const maxPerWindow = 3;
+  const agentName = 'test-agent';
   const chatJid = 'user-a@s.whatsapp.net';
 
   let limiter: RateLimiter;
@@ -200,16 +211,16 @@ describe('RateLimiter', () => {
   });
 
   it('first N messages pass (up to maxPerWindow)', () => {
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
   });
 
   it('message N+1 is rejected', () => {
     for (let i = 0; i < maxPerWindow; i++) {
-      limiter.check(chatJid, maxPerWindow);
+      limiter.check(agentName, chatJid, maxPerWindow);
     }
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(false);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(false);
   });
 
   it('different chats have independent limits', () => {
@@ -217,45 +228,54 @@ describe('RateLimiter', () => {
 
     // Exhaust limit for chatJid
     for (let i = 0; i < maxPerWindow; i++) {
-      limiter.check(chatJid, maxPerWindow);
+      limiter.check(agentName, chatJid, maxPerWindow);
     }
 
     // chatB should still be fine
-    expect(limiter.check(chatB, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatB, maxPerWindow)).toBe(true);
     // chatJid should be blocked
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(false);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(false);
+  });
+
+  it('different agents have independent limits for the same chat', () => {
+    for (let i = 0; i < maxPerWindow; i++) {
+      limiter.check('agent-a', chatJid, maxPerWindow);
+    }
+    // agent-a exhausted, agent-b should still pass
+    expect(limiter.check('agent-a', chatJid, maxPerWindow)).toBe(false);
+    expect(limiter.check('agent-b', chatJid, maxPerWindow)).toBe(true);
   });
 
   it('after window expires, messages pass again', () => {
     // Exhaust limit
     for (let i = 0; i < maxPerWindow; i++) {
-      limiter.check(chatJid, maxPerWindow);
+      limiter.check(agentName, chatJid, maxPerWindow);
     }
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(false);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(false);
 
     // Advance past the window
     vi.advanceTimersByTime(windowMs + 1);
 
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
   });
 
   it('sliding window: old timestamps fall off', () => {
     // Send 2 messages at t=0
-    limiter.check(chatJid, maxPerWindow);
-    limiter.check(chatJid, maxPerWindow);
+    limiter.check(agentName, chatJid, maxPerWindow);
+    limiter.check(agentName, chatJid, maxPerWindow);
 
     // Advance 40s, send 1 more (total 3 in window)
     vi.advanceTimersByTime(40_000);
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
 
     // Now at limit — 4th should fail
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(false);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(false);
 
     // Advance 21s more (total 61s since first 2 messages) — they fall off
     vi.advanceTimersByTime(21_000);
 
     // Now only 1 message in window (the one at t=40s), so new ones pass
-    expect(limiter.check(chatJid, maxPerWindow)).toBe(true);
+    expect(limiter.check(agentName, chatJid, maxPerWindow)).toBe(true);
   });
 });
 
