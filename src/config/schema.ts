@@ -51,6 +51,9 @@ export const AgentConfigSchema = z.object({
   maxSteps: z.number().positive().default(10),
   cooldownMs: z.number().nonnegative().default(5000),
   rateLimitPerWindow: z.number().positive().default(10),
+  anonymization: z.object({
+    enabled: z.boolean(),
+  }).optional(),
 });
 
 // --- Project Config Schema (wa-agent.yaml) ---

@@ -5,6 +5,7 @@ import type { ToolContext } from '../tools/types.js';
 import type { ParsedMessage } from '@ibrahimwithi/wu-cli';
 import { buildContext } from './context.js';
 import { resolveTools } from '../tools/registry.js';
+import { anonymizeMessages, deanonymizeText } from '../anonymization/anonymizer.js';
 import { maybeTriggerSummarization } from '../memory/summarizer.js';
 import { maybeUpdateUserProfile } from '../memory/profiles.js';
 import { createChildLogger } from '../util/logger.js';
@@ -20,8 +21,11 @@ export async function handleMessage(
   await sendTypingIndicator(ctx.sock, ctx.chatJid, true);
 
   try {
-    const messages = buildContext(agent.config, ctx);
+    const rawMessages = buildContext(agent.config, ctx);
     const tools = resolveTools(agent.config.tools, ctx);
+
+    const useAnon = agent.config.anonymization?.enabled === true;
+    const messages = useAnon ? anonymizeMessages(rawMessages, ctx.chatJid) : rawMessages;
 
     const result = await generateText({
       model: agent.model,
@@ -48,7 +52,8 @@ export async function handleMessage(
 
     // 3. If the agent produced text and didn't already send via tool, send the response
     if (result.text && result.finishReason !== 'tool-calls') {
-      await sendText(ctx.sock, ctx.chatJid, result.text, ctx.config);
+      const responseText = useAnon ? deanonymizeText(result.text, ctx.chatJid) : result.text;
+      await sendText(ctx.sock, ctx.chatJid, responseText, ctx.config);
     }
 
     // 4. Background: update user profile + check summarization

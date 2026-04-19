@@ -13,6 +13,7 @@ export interface AgentConfig {
   maxSteps?: number;
   cooldownMs?: number;
   rateLimitPerWindow?: number;
+  anonymization?: { enabled: boolean };
 }
 
 export interface LLMConfig {
