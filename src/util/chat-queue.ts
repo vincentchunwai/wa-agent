@@ -1,18 +1,22 @@
 import type { RefCountMap } from '../agent/types.js';
+import { createChildLogger } from '../util/logger.js';
+
+const logger = createChildLogger('chat-queue');
 
 export class ChatQueue {
   private queues = new Map<string, Promise<void>>();
 
-  async enqueue(chatJid: string, fn: () => Promise<void>): Promise<void> {
+  enqueue(chatJid: string, fn: () => Promise<void>): void {
     const prev = this.queues.get(chatJid) ?? Promise.resolve();
-    const next = prev.then(fn, fn);
+    const next = prev.then(fn, fn).catch((err) => {
+      logger.error({ err, chatJid }, 'Unhandled error in chat queue task');
+    });
     this.queues.set(chatJid, next);
     next.finally(() => {
       if (this.queues.get(chatJid) === next) {
         this.queues.delete(chatJid);
       }
     });
-    return next;
   }
 
   async drainForAgent(activeChats: RefCountMap): Promise<void> {

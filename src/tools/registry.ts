@@ -11,6 +11,7 @@ import { createFetchUrlTool } from './builtin/fetch-url.js';
 import { createScheduleTool } from './builtin/schedule.js';
 import { createHandoffTool } from './builtin/handoff.js';
 import { createSendReactionTool } from './builtin/send-reaction.js';
+import { createResumeHandoffTool } from './builtin/resume-handoff.js';
 import { createChildLogger } from '../util/logger.js';
 
 const logger = createChildLogger('tools');
@@ -26,6 +27,7 @@ const builtinTools: Record<string, ToolFactory> = {
   'schedule': createScheduleTool,
   'handoff': createHandoffTool,
   'send-reaction': createSendReactionTool,
+  'resume-handoff': createResumeHandoffTool,
 };
 
 const customTools = new Map<string, ToolFactory>();

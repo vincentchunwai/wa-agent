@@ -4,7 +4,7 @@ import { Engine } from '../runtime/engine.js';
 import { reloadAgent, getAgentInstance, addAgent } from '../runtime/lifecycle.js';
 import { loadProjectConfig, loadAgentConfig } from '../config/loader.js';
 import { acquireLock, releaseLock } from '@ibrahimwithi/wu-cli';
-import { closeDb } from '@ibrahimwithi/wu-cli';
+import { closeDb, ensureWuHome } from '@ibrahimwithi/wu-cli';
 import { createChildLogger } from '../util/logger.js';
 
 const logger = createChildLogger('dev');
@@ -13,6 +13,7 @@ export async function devCommand(opts: { dir: string }): Promise<void> {
   const projectDir = resolve(opts.dir);
   logger.info({ projectDir }, 'Starting wa-agent in dev mode...');
 
+  ensureWuHome();
   acquireLock();
 
   const engine = new Engine(projectDir);

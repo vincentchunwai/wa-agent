@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 import { Engine } from '../runtime/engine.js';
 import { acquireLock, releaseLock } from '@ibrahimwithi/wu-cli';
-import { closeDb } from '@ibrahimwithi/wu-cli';
+import { closeDb, ensureWuHome } from '@ibrahimwithi/wu-cli';
 import { createChildLogger } from '../util/logger.js';
 
 const logger = createChildLogger('cli');
@@ -10,6 +10,7 @@ export async function startCommand(opts: { dir: string }): Promise<void> {
   const projectDir = resolve(opts.dir);
   logger.info({ projectDir }, 'Starting wa-agent...');
 
+  ensureWuHome();
   acquireLock();
 
   const engine = new Engine(projectDir);

@@ -24,7 +24,7 @@ export function anonymizeMessages(messages: ModelMessage[], chatJid: string): Mo
     }
 
     if (text === msg.content) return msg; // no changes
-    return { ...msg, content: text };
+    return { ...msg, content: text } as typeof msg;
   });
 }
 

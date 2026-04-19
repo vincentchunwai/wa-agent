@@ -71,11 +71,13 @@ export function resolveRoutingNames(configs: AgentConfig[]): ResolutionResult {
       }
 
       if (jid) {
+        rule.originalMatch = rule.originalMatch ?? rule.match;
         rule.match = jid;
         resolved++;
         logger.info({ name, jid, agent: config.name }, 'Resolved routing name');
       } else {
-        unresolved.push(name);
+        // On retry, use originalMatch for re-resolution
+        unresolved.push(rule.originalMatch ?? name);
         logger.error({ name, agent: config.name }, 'Could not resolve routing name');
       }
     }
@@ -86,6 +88,7 @@ export function resolveRoutingNames(configs: AgentConfig[]): ResolutionResult {
       // Try group first, then contact
       const jid = resolveGroupName(name) ?? resolveContactName(name);
       if (jid) {
+        (config.handoff as any)._originalEscalateTo = (config.handoff as any)._originalEscalateTo ?? config.handoff.escalateTo;
         config.handoff.escalateTo = jid;
         resolved++;
         logger.info({ name, jid, agent: config.name }, 'Resolved handoff escalateTo');

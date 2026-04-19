@@ -1,0 +1,14 @@
+version: 1
+
+agents:
+  dir: ./agents
+
+log:
+  level: info
+
+webSearch:
+  provider: tavily
+  apiKey: "${TAVILY_API_KEY}"
+
+fetchUrl:
+  provider: jina

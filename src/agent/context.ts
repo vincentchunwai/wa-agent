@@ -57,10 +57,16 @@ export function buildContext(config: AgentConfig, ctx: ToolContext): ModelMessag
 
   // listMessages returns DESC order, reverse to oldest first
   for (const msg of history.reverse()) {
-    parts.push({
-      role: msg.is_from_me ? 'assistant' : 'user',
-      content: formatMessageForLLM(msg, ctx.chatJid),
-    });
+    const role = msg.is_from_me ? 'assistant' : 'user';
+    const content = formatMessageForLLM(msg, ctx.chatJid);
+
+    // Merge consecutive same-role messages to avoid provider rejections
+    const last = parts[parts.length - 1];
+    if (last && last.role === role && typeof last.content === 'string') {
+      last.content += '\n' + content;
+    } else {
+      parts.push({ role, content });
+    }
   }
 
   return parts;

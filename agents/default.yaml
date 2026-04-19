@@ -1,0 +1,35 @@
+name: default
+description: General-purpose WhatsApp assistant
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  temperature: 0.7
+  maxTokens: 4096
+
+personality: |
+  You are a friendly and helpful WhatsApp assistant. Keep responses concise
+  and conversational — this is a chat app, not an essay. Use short paragraphs.
+  If you don't know something, say so honestly.
+
+tools:
+  - send-message
+  - web-search
+  - fetch-url
+  - send-reaction
+  - schedule
+  - get-chat-history
+
+routing:
+  - type: default
+    match: "*"
+
+memory:
+  conversationWindow: 20
+  summarizeAfter: 50
+  userProfiles: true
+  profileExtractEvery: 5
+
+maxSteps: 10
+cooldownMs: 3000
+rateLimitPerWindow: 15

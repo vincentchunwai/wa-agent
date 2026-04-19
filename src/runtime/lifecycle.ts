@@ -13,9 +13,13 @@ const agentInstances = new Map<string, AgentInstance>();
 
 export function createAgentInstance(config: AgentConfig): AgentInstance {
   const model = createModel(config.llm);
+  const backgroundModel = config.memory.backgroundModel
+    ? createModel(config.memory.backgroundModel)
+    : undefined;
   const instance: AgentInstance = {
     config,
     model,
+    backgroundModel,
     draining: false,
     activeChats: new RefCountMap(),
   };

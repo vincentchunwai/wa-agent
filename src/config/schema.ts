@@ -21,6 +21,8 @@ const MemoryConfigSchema = z.object({
   conversationWindow: z.number().positive().default(20),
   summarizeAfter: z.number().positive().optional(),
   userProfiles: z.boolean().default(true),
+  backgroundModel: LLMConfigSchema.optional(),
+  profileExtractEvery: z.number().positive().default(5),
 });
 
 const TriggerConfigSchema = z.object({

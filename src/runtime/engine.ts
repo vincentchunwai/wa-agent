@@ -83,6 +83,9 @@ export class Engine {
           this.scheduler = new Scheduler(sock, wuConfig, projectConfig);
           this.scheduler.start();
         }
+
+        // Register triggers now that scheduler exists
+        this.registerTriggersIfReady();
       },
       onDisconnect: () => {
         logger.warn('WhatsApp disconnected');
@@ -97,11 +100,20 @@ export class Engine {
     logger.info('Engine started');
 
     // 7. Register scheduled triggers from agent configs
-    if (this.scheduler) {
-      for (const config of this.agentConfigs) {
-        if (config.triggers?.length) {
-          await this.scheduler.registerTriggers(config);
-        }
+    // Scheduler may already exist if onReady fired synchronously, or may not yet.
+    // If not, defer registration to when onReady fires.
+    await this.registerTriggersIfReady();
+  }
+
+  private pendingTriggerRegistration = true;
+
+  private async registerTriggersIfReady(): Promise<void> {
+    if (!this.scheduler || !this.pendingTriggerRegistration) return;
+    this.pendingTriggerRegistration = false;
+
+    for (const config of this.agentConfigs) {
+      if (config.triggers?.length) {
+        await this.scheduler.registerTriggers(config);
       }
     }
   }

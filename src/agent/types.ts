@@ -28,6 +28,7 @@ export interface LLMConfig {
 export interface RoutingRule {
   type: 'jid' | 'group' | 'keyword' | 'default';
   match: string;
+  originalMatch?: string;
   priority?: number;
 }
 
@@ -35,6 +36,8 @@ export interface MemoryConfig {
   conversationWindow: number;
   summarizeAfter?: number;
   userProfiles: boolean;
+  backgroundModel?: LLMConfig;
+  profileExtractEvery?: number;
 }
 
 export interface TriggerConfig {
@@ -55,6 +58,7 @@ export interface HandoffConfig {
 export interface AgentInstance {
   config: AgentConfig;
   model: LanguageModel;
+  backgroundModel?: LanguageModel;
   draining: boolean;
   activeChats: RefCountMap;
 }

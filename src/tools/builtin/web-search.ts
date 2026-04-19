@@ -5,6 +5,10 @@ import type { ToolContext } from '../types.js';
 export function createWebSearchTool(ctx: ToolContext) {
   const { provider, apiKey } = ctx.projectConfig.webSearch;
 
+  if (!apiKey) {
+    throw new Error(`Web search API key not configured for provider '${provider}'. Set it in wa-agent.yaml under webSearch.apiKey`);
+  }
+
   return tool({
     description: 'Search the web for current information',
     inputSchema: z.object({

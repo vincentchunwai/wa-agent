@@ -25,13 +25,13 @@ export class Dispatcher {
 
   async dispatch(msg: ParsedMessage, agent: AgentInstance): Promise<void> {
     // Per-agent cooldown check
-    if (!this.cooldown.check(msg.chatJid, agent.config.cooldownMs ?? 5000)) {
+    if (!this.cooldown.check(agent.config.name, msg.chatJid, agent.config.cooldownMs ?? 5000)) {
       logger.debug({ chatJid: msg.chatJid, agent: agent.config.name }, 'Cooldown active, skipping');
       return;
     }
 
     // Per-agent rate limit check
-    if (!this.rateLimiter.check(msg.chatJid, agent.config.rateLimitPerWindow ?? 10)) {
+    if (!this.rateLimiter.check(agent.config.name, msg.chatJid, agent.config.rateLimitPerWindow ?? 10)) {
       logger.debug({ chatJid: msg.chatJid, agent: agent.config.name }, 'Rate limited, skipping');
       return;
     }
@@ -52,7 +52,7 @@ export class Dispatcher {
         };
 
         await handleMessage(agent, msg, ctx);
-        this.cooldown.recordResponse(msg.chatJid);
+        this.cooldown.recordResponse(agent.config.name, msg.chatJid);
       } catch (err) {
         logger.error({ err, agent: agent.config.name, chatJid: msg.chatJid }, 'Dispatch error');
       } finally {

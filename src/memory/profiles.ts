@@ -6,6 +6,9 @@ import { createChildLogger } from '../util/logger.js';
 
 const logger = createChildLogger('profiles');
 
+/** Tracks interaction count per agent+user for deterministic profile extraction */
+const interactionCounts = new Map<string, number>();
+
 export interface UserProfile {
   facts: string | null;
   preferences: string | null;
@@ -32,8 +35,13 @@ export async function maybeUpdateUserProfile(
 ): Promise<void> {
   if (!agent.config.memory.userProfiles) return;
 
-  // Only run profile extraction occasionally (every 5th interaction approximately)
-  if (Math.random() > 0.2) return;
+  // Counter-based extraction: run every Nth interaction (default 5)
+  const key = `${agent.config.name}:${userJid}`;
+  const count = (interactionCounts.get(key) ?? 0) + 1;
+  interactionCounts.set(key, count);
+
+  const every = agent.config.memory.profileExtractEvery ?? 5;
+  if (count % every !== 0) return;
 
   const existing = getUserProfileRow(agent.config.name, userJid);
   const existingFacts = existing?.facts || '[]';
@@ -45,7 +53,7 @@ export async function maybeUpdateUserProfile(
 
   try {
     const result = await generateText({
-      model: agent.model,
+      model: agent.backgroundModel ?? agent.model,
       messages: [
         { role: 'system', content: PROFILE_PROMPT },
         {

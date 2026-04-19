@@ -60,7 +60,7 @@ export async function maybeTriggerSummarization(
   const existingSummary = convo?.summary ? `Previous summary:\n${convo.summary}\n\n` : '';
 
   const result = await generateText({
-    model: agent.model,
+    model: agent.backgroundModel ?? agent.model,
     messages: [
       {
         role: 'system',
