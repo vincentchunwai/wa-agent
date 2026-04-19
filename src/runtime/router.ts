@@ -4,6 +4,17 @@ import { createChildLogger } from '../util/logger.js';
 
 const logger = createChildLogger('router');
 
+/** Extract mentionedJid array from raw Baileys message */
+function getMentionedJids(msg: ParsedMessage): string[] {
+  const raw = msg.raw?.message;
+  if (!raw) return [];
+  const contextInfo = raw.extendedTextMessage?.contextInfo
+    ?? raw.imageMessage?.contextInfo
+    ?? raw.videoMessage?.contextInfo
+    ?? raw.documentMessage?.contextInfo;
+  return contextInfo?.mentionedJid ?? [];
+}
+
 interface RegisteredAgent {
   config: AgentConfig;
   instance: AgentInstance;
@@ -12,6 +23,12 @@ interface RegisteredAgent {
 export class Router {
   private agents: RegisteredAgent[] = [];
   private regexCache = new Map<string, RegExp>();
+  private ownJids = new Set<string>();
+
+  setOwnJid(jid: string): void {
+    this.ownJids.add(jid);
+    logger.debug({ ownJid: jid }, 'Own JID added for mention routing');
+  }
 
   register(config: AgentConfig, instance: AgentInstance): void {
     this.agents.push({ config, instance });
@@ -52,10 +69,11 @@ export class Router {
 
   private getRulePriority(rule: AgentConfig['routing'][0]): number {
     if (rule.priority !== undefined) return rule.priority;
-    // Default priorities: jid > group > keyword > default
+    // Default priorities: jid > group > mention > keyword > default
     switch (rule.type) {
       case 'jid': return 40;
       case 'group': return 30;
+      case 'mention': return 25;
       case 'keyword': return 20;
       case 'default': return 10;
     }
@@ -67,6 +85,11 @@ export class Router {
         return msg.chatJid === rule.match || msg.senderJid === rule.match;
       case 'group':
         return msg.chatJid === rule.match;
+      case 'mention': {
+        if (this.ownJids.size === 0) return false;
+        const mentioned = getMentionedJids(msg);
+        return mentioned.some(jid => this.ownJids.has(jid));
+      }
       case 'keyword': {
         if (!msg.body) return false;
         let regex = this.regexCache.get(rule.match);

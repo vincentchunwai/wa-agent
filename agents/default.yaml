@@ -14,7 +14,9 @@ personality: |
 
 tools:
   - send-message
+  - search-messages
  # - web-search
+  - resume-handoff
   - fetch-url
   - send-reaction
   - schedule
@@ -24,7 +26,10 @@ tools:
 routing:
   - type: jid
     match: "85252054066@s.whatsapp.net"
-
+  - type: jid
+    match: "85266424992@s.whatsapp.net"
+  - type: mention
+    match: "self"
 memory:
   conversationWindow: 20
   summarizeAfter: 50

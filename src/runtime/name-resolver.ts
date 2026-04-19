@@ -115,7 +115,7 @@ export function resolveRoutingNames(configs: AgentConfig[]): ResolutionResult {
   for (const config of configs) {
     // Resolve routing rules
     for (const rule of config.routing) {
-      if (rule.type === 'keyword' || rule.type === 'default') continue;
+      if (rule.type === 'keyword' || rule.type === 'default' || rule.type === 'mention') continue;
 
       // Already a @lid or @g.us JID — no resolution needed
       if (isLidJid(rule.match) || isGroupJid(rule.match)) continue;

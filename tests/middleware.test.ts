@@ -8,10 +8,13 @@ import { RateLimiter } from '../src/middleware/rate-limit.js';
 // Mock the store module before importing handoff-check
 vi.mock('../src/memory/store.js', () => ({
   getHandoffState: vi.fn().mockReturnValue(false),
+  setHandoffState: vi.fn(),
+  getHandedOffChats: vi.fn().mockReturnValue([]),
 }));
 
 import { createHandoffCheckMiddleware } from '../src/middleware/handoff-check.js';
-import { getHandoffState } from '../src/memory/store.js';
+import { getHandoffState, setHandoffState, getHandedOffChats } from '../src/memory/store.js';
+import type { AgentConfig } from '../src/agent/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -283,12 +286,26 @@ describe('RateLimiter', () => {
 // Handoff-check middleware
 // ---------------------------------------------------------------------------
 
+function makeAgentConfig(overrides: Partial<AgentConfig> & { name: string }): AgentConfig {
+  return {
+    llm: { provider: 'anthropic', model: 'test' },
+    personality: '',
+    tools: [],
+    routing: [],
+    memory: { conversationWindow: 20, userProfiles: true },
+    ...overrides,
+  };
+}
+
 describe('createHandoffCheckMiddleware', () => {
   let middleware: MiddlewareFn;
+  const defaultConfig = makeAgentConfig({ name: 'agent-1' });
 
   beforeEach(() => {
     vi.mocked(getHandoffState).mockReset().mockReturnValue(false);
-    middleware = createHandoffCheckMiddleware(() => ['agent-1']);
+    vi.mocked(setHandoffState).mockReset();
+    vi.mocked(getHandedOffChats).mockReset().mockReturnValue([]);
+    middleware = createHandoffCheckMiddleware(() => [defaultConfig]);
   });
 
   it('passes messages when chat is not handed off', () => {
@@ -304,7 +321,8 @@ describe('createHandoffCheckMiddleware', () => {
   });
 
   it('checks all agent names and rejects if any has handoff', () => {
-    middleware = createHandoffCheckMiddleware(() => ['agent-1', 'agent-2']);
+    const config2 = makeAgentConfig({ name: 'agent-2' });
+    middleware = createHandoffCheckMiddleware(() => [defaultConfig, config2]);
     vi.mocked(getHandoffState).mockImplementation(
       (agentName: string, _chatJid: string) => agentName === 'agent-2',
     );
@@ -314,9 +332,118 @@ describe('createHandoffCheckMiddleware', () => {
   });
 
   it('passes when no agents have the chat handed off', () => {
-    middleware = createHandoffCheckMiddleware(() => ['agent-1', 'agent-2']);
+    const config2 = makeAgentConfig({ name: 'agent-2' });
+    middleware = createHandoffCheckMiddleware(() => [defaultConfig, config2]);
     const msg = mockMessage({ chatJid: 'free-chat@s.whatsapp.net' });
     expect(middleware(msg)).toBe(true);
     expect(getHandoffState).toHaveBeenCalledTimes(2);
+  });
+
+  // --- Keyword resolution: in-chat ---
+
+  it('/done in a handed-off chat clears handoff and returns false', () => {
+    vi.mocked(getHandoffState).mockReturnValue(true);
+    const msg = mockMessage({ chatJid: 'user@lid', body: '/done' });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'user@lid', false);
+  });
+
+  it('/resolve in a handed-off chat also clears handoff', () => {
+    vi.mocked(getHandoffState).mockReturnValue(true);
+    const msg = mockMessage({ chatJid: 'user@lid', body: '/resolve' });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'user@lid', false);
+  });
+
+  it('keyword matching is case-insensitive', () => {
+    vi.mocked(getHandoffState).mockReturnValue(true);
+    const msg = mockMessage({ chatJid: 'user@lid', body: '/Done' });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'user@lid', false);
+  });
+
+  it('keyword matching trims whitespace', () => {
+    vi.mocked(getHandoffState).mockReturnValue(true);
+    const msg = mockMessage({ chatJid: 'user@lid', body: '  /done  ' });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'user@lid', false);
+  });
+
+  it('non-keyword message in handed-off chat is blocked without state change', () => {
+    vi.mocked(getHandoffState).mockReturnValue(true);
+    const msg = mockMessage({ chatJid: 'user@lid', body: 'hello' });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).not.toHaveBeenCalled();
+  });
+
+  it('uses custom resolveKeywords from config', () => {
+    const customConfig = makeAgentConfig({
+      name: 'agent-1',
+      handoff: { enabled: true, escalateTo: 'op@lid', resolveKeywords: ['/finish'] },
+    });
+    middleware = createHandoffCheckMiddleware(() => [customConfig]);
+    vi.mocked(getHandoffState).mockReturnValue(true);
+
+    // Default keyword should NOT work
+    const msg1 = mockMessage({ chatJid: 'user@lid', body: '/done' });
+    expect(middleware(msg1)).toBe(false);
+    expect(setHandoffState).not.toHaveBeenCalled();
+
+    // Custom keyword should work
+    const msg2 = mockMessage({ chatJid: 'user@lid', body: '/finish' });
+    expect(middleware(msg2)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'user@lid', false);
+  });
+
+  // --- Keyword resolution: remote (operator DM) ---
+
+  it('/done from escalateTo operator clears all handoffs remotely', () => {
+    const config = makeAgentConfig({
+      name: 'agent-1',
+      handoff: { enabled: true, escalateTo: 'operator@lid' },
+    });
+    middleware = createHandoffCheckMiddleware(() => [config]);
+    vi.mocked(getHandedOffChats).mockReturnValue(['chat-a@lid', 'chat-b@lid']);
+
+    const msg = mockMessage({
+      chatJid: 'operator@lid',
+      senderJid: 'operator@lid',
+      body: '/done',
+    });
+    expect(middleware(msg)).toBe(false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'chat-a@lid', false);
+    expect(setHandoffState).toHaveBeenCalledWith('agent-1', 'chat-b@lid', false);
+  });
+
+  it('/done from non-operator in non-handed-off chat passes through', () => {
+    const config = makeAgentConfig({
+      name: 'agent-1',
+      handoff: { enabled: true, escalateTo: 'operator@lid' },
+    });
+    middleware = createHandoffCheckMiddleware(() => [config]);
+
+    const msg = mockMessage({
+      chatJid: 'random@lid',
+      senderJid: 'random@lid',
+      body: '/done',
+    });
+    expect(middleware(msg)).toBe(true);
+    expect(setHandoffState).not.toHaveBeenCalled();
+  });
+
+  it('remote resolve with no outstanding handoffs passes through', () => {
+    const config = makeAgentConfig({
+      name: 'agent-1',
+      handoff: { enabled: true, escalateTo: 'operator@lid' },
+    });
+    middleware = createHandoffCheckMiddleware(() => [config]);
+    vi.mocked(getHandedOffChats).mockReturnValue([]);
+
+    const msg = mockMessage({
+      chatJid: 'operator@lid',
+      senderJid: 'operator@lid',
+      body: '/done',
+    });
+    expect(middleware(msg)).toBe(true);
   });
 });
