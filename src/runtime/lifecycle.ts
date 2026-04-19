@@ -2,6 +2,7 @@ import type { AgentConfig, AgentInstance } from '../agent/types.js';
 import { RefCountMap } from '../agent/types.js';
 import { createModel } from '../agent/factory.js';
 import { loadAgentConfig } from '../config/loader.js';
+import { resolveRoutingNames } from './name-resolver.js';
 import { Router } from './router.js';
 import { ChatQueue } from '../util/chat-queue.js';
 import { createChildLogger } from '../util/logger.js';
@@ -51,6 +52,7 @@ export async function reloadAgent(
 
   // 4. Load new config
   const newConfig = loadAgentConfig(agentFilePath);
+  resolveRoutingNames([newConfig]);
   const newInstance = createAgentInstance(newConfig);
   router.register(newConfig, newInstance);
 

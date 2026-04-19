@@ -5,6 +5,7 @@ import { loadProjectConfig, loadAllAgentConfigs } from '../config/loader.js';
 import { initMemorySchema } from '../memory/schema.js';
 import { loadCustomTools } from '../tools/registry.js';
 import { createAgentInstance, destroyAllAgents } from './lifecycle.js';
+import { resolveRoutingNames } from './name-resolver.js';
 import { Router } from './router.js';
 import { Dispatcher } from './dispatcher.js';
 import { MiddlewarePipeline } from '../middleware/pipeline.js';
@@ -12,6 +13,7 @@ import { createFilterMiddleware } from '../middleware/filter.js';
 import { createHandoffCheckMiddleware } from '../middleware/handoff-check.js';
 import { Scheduler } from '../triggers/scheduler.js';
 import { createChildLogger } from '../util/logger.js';
+import type { AgentConfig } from '../agent/types.js';
 
 const logger = createChildLogger('engine');
 
@@ -22,6 +24,8 @@ export class Engine {
   private pipeline = new MiddlewarePipeline();
   private scheduler: Scheduler | null = null;
   private projectDir: string;
+  private agentConfigs: AgentConfig[] = [];
+  private nameResolveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(projectDir: string) {
     this.projectDir = projectDir;
@@ -31,7 +35,7 @@ export class Engine {
     // 1. Load configs
     const projectConfig = loadProjectConfig(this.projectDir);
     const wuConfig = loadWuConfig();
-    const agentConfigs = loadAllAgentConfigs(this.projectDir, projectConfig.agents.dir);
+    this.agentConfigs = loadAllAgentConfigs(this.projectDir, projectConfig.agents.dir);
 
     // 2. Load custom tools from project's tools/ directory
     await loadCustomTools(this.projectDir);
@@ -41,11 +45,11 @@ export class Engine {
     logger.info('Memory schema initialized');
 
     // 4. Create agent instances and register with router
-    for (const config of agentConfigs) {
+    for (const config of this.agentConfigs) {
       const instance = createAgentInstance(config);
       this.router.register(config, instance);
     }
-    logger.info({ count: agentConfigs.length }, 'Agents registered');
+    logger.info({ count: this.agentConfigs.length }, 'Agents registered');
 
     // 5. Setup middleware pipeline
     this.pipeline.use('filter', createFilterMiddleware());
@@ -62,6 +66,9 @@ export class Engine {
         } else {
           this.dispatcher = new Dispatcher(sock, wuConfig, projectConfig);
         }
+
+        // Resolve name-based routing
+        this.resolveNamesWithRetry(this.agentConfigs);
 
         // Start listener
         startListener(sock, {
@@ -91,7 +98,7 @@ export class Engine {
 
     // 7. Register scheduled triggers from agent configs
     if (this.scheduler) {
-      for (const config of agentConfigs) {
+      for (const config of this.agentConfigs) {
         if (config.triggers?.length) {
           await this.scheduler.registerTriggers(config);
         }
@@ -117,23 +124,45 @@ export class Engine {
   async stop(): Promise<void> {
     logger.info('Stopping engine...');
 
-    // 1. Stop scheduler
+    // 1. Clear name resolution retry timer
+    if (this.nameResolveTimer) {
+      clearTimeout(this.nameResolveTimer);
+      this.nameResolveTimer = null;
+    }
+
+    // 2. Stop scheduler
     this.scheduler?.stop();
 
-    // 2. Drain all chat queues
+    // 3. Drain all chat queues
     if (this.dispatcher) {
       await this.dispatcher.getChatQueue().drainAll();
     }
 
-    // 3. Destroy all agents
+    // 4. Destroy all agents
     destroyAllAgents();
 
-    // 4. Close connection
+    // 5. Close connection
     if (this.connection) {
       await this.connection.stop();
     }
 
     logger.info('Engine stopped');
+  }
+
+  private resolveNamesWithRetry(configs: AgentConfig[], attempt = 1): void {
+    const { unresolved } = resolveRoutingNames(configs);
+    if (unresolved.length === 0 || attempt >= 3) {
+      if (unresolved.length > 0) {
+        logger.warn({ unresolved, attempts: attempt }, 'Some names could not be resolved after retries');
+      }
+      return;
+    }
+
+    logger.info({ unresolved, attempt }, 'Unresolved names remain, scheduling retry');
+    this.nameResolveTimer = setTimeout(() => {
+      this.nameResolveTimer = null;
+      this.resolveNamesWithRetry(configs, attempt + 1);
+    }, 30_000);
   }
 
   getRouter(): Router {
