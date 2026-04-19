@@ -19,7 +19,7 @@ export function createModel(config: LLMConfig): LanguageModel {
         baseURL: config.baseUrl ?? 'https://openrouter.ai/api/v1',
         apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
       });
-      return provider(config.model);
+      return provider.chat(config.model);
     }
     case 'ollama': {
       const provider = createOllama(config.baseUrl ? { baseURL: config.baseUrl } : {});
