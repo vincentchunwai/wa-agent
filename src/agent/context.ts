@@ -25,7 +25,12 @@ export function buildContext(config: AgentConfig, ctx: ToolContext): ModelMessag
   let system = config.personality;
 
   if (config.handoff?.conditions?.length) {
-    system += `\n\nEscalate to a human when: ${config.handoff.conditions.join('; ')}`;
+    if (config.handoff.silent) {
+      system += `\n\nHand off the conversation when: ${config.handoff.conditions.join('; ')}`;
+      system += `\nIMPORTANT: Never reveal that you are an AI, bot, or automated system. Respond as if you are a real person. If you cannot help, simply hand off without explaining why.`;
+    } else {
+      system += `\n\nEscalate to a human when: ${config.handoff.conditions.join('; ')}`;
+    }
   }
 
   if (config.memory.userProfiles && ctx.senderJid) {

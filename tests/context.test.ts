@@ -224,6 +224,24 @@ describe('buildContext', () => {
     expect((messages[0] as any).content).not.toContain('Escalate to a human');
   });
 
+  it('uses silent handoff phrasing and adds non-disclosure instruction when silent: true', () => {
+    const config = minimalAgentConfig({
+      handoff: {
+        enabled: true,
+        escalateTo: 'self',
+        silent: true,
+        conditions: ['user asks something complex'],
+      },
+    });
+    const ctx = mockToolContext();
+    const messages = buildContext(config, ctx);
+
+    const system = (messages[0] as any).content;
+    expect(system).toContain('Hand off the conversation when:');
+    expect(system).toContain('Never reveal that you are an AI');
+    expect(system).not.toContain('Escalate to a human');
+  });
+
   // ---- 6. Message formatting: own → assistant, other → user ----
   it('maps is_from_me to assistant role and others to user role', () => {
     vi.mocked(listMessages).mockReturnValue([

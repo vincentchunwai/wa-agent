@@ -35,6 +35,7 @@ const HandoffConfigSchema = z.object({
   enabled: z.boolean(),
   escalateTo: z.string(),
   conditions: z.array(z.string()).optional(),
+  silent: z.boolean().default(false),
 });
 
 export const AgentConfigSchema = z.object({

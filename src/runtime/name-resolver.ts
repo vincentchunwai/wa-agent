@@ -81,7 +81,7 @@ export function resolveRoutingNames(configs: AgentConfig[]): ResolutionResult {
     }
 
     // Resolve handoff.escalateTo
-    if (config.handoff?.escalateTo && !isJid(config.handoff.escalateTo)) {
+    if (config.handoff?.escalateTo && !isJid(config.handoff.escalateTo) && config.handoff.escalateTo !== 'self') {
       const name = config.handoff.escalateTo;
       // Try group first, then contact
       const jid = resolveGroupName(name) ?? resolveContactName(name);

@@ -48,6 +48,7 @@ export interface HandoffConfig {
   enabled: boolean;
   escalateTo: string;
   conditions?: string[];
+  silent?: boolean;
 }
 
 export interface AgentInstance {
