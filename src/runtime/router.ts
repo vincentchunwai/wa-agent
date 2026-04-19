@@ -82,11 +82,13 @@ export class Router {
   private matchesRule(msg: ParsedMessage, rule: AgentConfig['routing'][0]): boolean {
     switch (rule.type) {
       case 'jid':
-        return msg.chatJid === rule.match || msg.senderJid === rule.match;
+        return msg.chatJid === rule.match;
       case 'group':
         return msg.chatJid === rule.match;
       case 'mention': {
         if (this.ownJids.size === 0) return false;
+        // If scoped to a specific chat/group, check it matches
+        if (rule.match !== 'self' && msg.chatJid !== rule.match) return false;
         const mentioned = getMentionedJids(msg);
         return mentioned.some(jid => this.ownJids.has(jid));
       }

@@ -87,7 +87,7 @@ describe('Router', () => {
       expect(router.resolve(msg)).toBe(agent);
     });
 
-    it('matches on senderJid', () => {
+    it('does not match on senderJid in group chats', () => {
       const agent = mockAgent({
         name: 'jid-agent',
         routing: [{ type: 'jid', match: '9999@s.whatsapp.net' }],
@@ -98,7 +98,7 @@ describe('Router', () => {
         chatJid: 'group@g.us',
         senderJid: '9999@s.whatsapp.net',
       });
-      expect(router.resolve(msg)).toBe(agent);
+      expect(router.resolve(msg)).toBeNull();
     });
 
     it('does not match when neither chatJid nor senderJid matches', () => {
@@ -322,6 +322,85 @@ describe('Router', () => {
       router.register(agent.config, agent);
 
       expect(router.resolve(mockMessage())).toBeNull();
+    });
+  });
+
+  describe('mention routing', () => {
+    function mentionMsg(chatJid: string, mentionedJids: string[]): ParsedMessage {
+      return mockMessage({
+        chatJid,
+        body: '@bot hello',
+        raw: {
+          message: {
+            extendedTextMessage: {
+              contextInfo: { mentionedJid: mentionedJids },
+            },
+          },
+        } as any,
+      });
+    }
+
+    it('matches when bot is mentioned with match: "self"', () => {
+      const agent = mockAgent({
+        name: 'mention-agent',
+        routing: [{ type: 'mention', match: 'self' }],
+      });
+      router.register(agent.config, agent);
+      router.setOwnJid('bot@lid');
+
+      const msg = mentionMsg('anygroup@g.us', ['bot@lid']);
+      expect(router.resolve(msg)).toBe(agent);
+    });
+
+    it('match: "self" triggers in any group', () => {
+      const agent = mockAgent({
+        name: 'mention-agent',
+        routing: [{ type: 'mention', match: 'self' }],
+      });
+      router.register(agent.config, agent);
+      router.setOwnJid('bot@lid');
+
+      expect(router.resolve(mentionMsg('group-a@g.us', ['bot@lid']))).toBe(agent);
+      expect(router.resolve(mentionMsg('group-b@g.us', ['bot@lid']))).toBe(agent);
+      expect(router.resolve(mentionMsg('group-c@g.us', ['bot@lid']))).toBe(agent);
+    });
+
+    it('scoped mention only matches in the specified group', () => {
+      const agent = mockAgent({
+        name: 'mention-agent',
+        routing: [{ type: 'mention', match: 'target-group@g.us' }],
+      });
+      router.register(agent.config, agent);
+      router.setOwnJid('bot@lid');
+
+      // Matches in the target group
+      expect(router.resolve(mentionMsg('target-group@g.us', ['bot@lid']))).toBe(agent);
+      // Does NOT match in other groups
+      expect(router.resolve(mentionMsg('other-group@g.us', ['bot@lid']))).toBeNull();
+    });
+
+    it('does not match when bot is not mentioned', () => {
+      const agent = mockAgent({
+        name: 'mention-agent',
+        routing: [{ type: 'mention', match: 'self' }],
+      });
+      router.register(agent.config, agent);
+      router.setOwnJid('bot@lid');
+
+      const msg = mentionMsg('anygroup@g.us', ['someone-else@lid']);
+      expect(router.resolve(msg)).toBeNull();
+    });
+
+    it('does not match when no own JIDs are set', () => {
+      const agent = mockAgent({
+        name: 'mention-agent',
+        routing: [{ type: 'mention', match: 'self' }],
+      });
+      router.register(agent.config, agent);
+      // No setOwnJid call
+
+      const msg = mentionMsg('anygroup@g.us', ['bot@lid']);
+      expect(router.resolve(msg)).toBeNull();
     });
   });
 

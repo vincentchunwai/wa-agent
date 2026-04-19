@@ -32,8 +32,10 @@ routing:
     match: "85252054066@s.whatsapp.net"
   - type: jid
     match: "85266424992@s.whatsapp.net"
-#  - type: mention
-#    match: "self"
+#  - type: group
+#    match: "120363424581833481@g.us"
+  - type: mention
+    match: "120363425866026944@g.us"
 memory:
   conversationWindow: 20
   summarizeAfter: 50
